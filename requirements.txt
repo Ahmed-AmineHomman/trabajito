@@ -1,7 +1,9 @@
-pandas
-gradio
 openai
 langchain
 unstructured
 python-dotenv
 faiss-cpu
+pdf2image
+pdfminer
+langchain-experimental
+lanchain-openai
