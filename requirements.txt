@@ -1,0 +1,7 @@
+pandas
+gradio
+openai
+langchain
+unstructured
+python-dotenv
+faiss-cpu
