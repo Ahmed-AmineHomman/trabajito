@@ -34,7 +34,7 @@ Tu dois respecter les règles suivantes :
 - Sois strict : tes notes doivent refléter la qualité de la réponse, et donc être élevée quand la réponse est bonne et basse si elle ne l'est pas.
 - Sois positif : tes explications doivent être positives et encourager ton étudiant à progresser.
     """
-    teacher_input = "Tapez votre réponse :"
+    teacher_input = "Tapez votre réponse : "
     teacher_query_builder = lambda u, v: f"Question : {u}\n Réponse : {v}"
 
     # other prompts
