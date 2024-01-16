@@ -1,9 +1,13 @@
 openai
 langchain
 unstructured
+unstructured-inference
 python-dotenv
 faiss-cpu
 pdf2image
-pdfminer
+pdfminer.six
 langchain-experimental
-lanchain-openai
+langchain-openai
+opencv-python
+pikepdf
+pypdf
