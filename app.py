@@ -65,7 +65,8 @@ if __name__ == "__main__":
     # start chatting
     status = ChatStatus.CONTINUE
     while status == ChatStatus.CONTINUE:
-        command = input(prompts["command_input"])
+        prompt = prompts["app"]["command"]
+        command = input(prompt)
         status = manager.interpret(command=command)
 
-    print(prompts["goodbye_prompt"])
+    print(prompts["app"]["goodbye"])

@@ -36,8 +36,8 @@ class ChatbotManager:
 
         # build LLMs
         self._prompts = set_prompts() if prompts is None else prompts
-        self._partner = OpenAILLM(context=self._prompts["partner_context"], api_key=api_key)
-        self._teacher = OpenAILLM(context=self._prompts["teacher_context"], api_key=api_key)
+        self._partner = OpenAILLM(context=self._prompts["partner"]["context"], api_key=api_key)
+        self._teacher = OpenAILLM(context=self._prompts["teacher"]["context"], api_key=api_key)
 
     def interpret(
             self,
@@ -47,7 +47,7 @@ class ChatbotManager:
         # interpret user command
         if command in ["exit", "quit", "q"]:
             self._status = ChatCommands.QUIT
-        elif command == "change":
+        elif command in ["change", "c"]:
             self._status = ChatCommands.CHANGE_SECTION
         else:
             pass
@@ -58,21 +58,32 @@ class ChatbotManager:
     def _act(self) -> ChatStatus:
         """Performs the action corresponding to the status."""
         if self._status == ChatCommands.CONTINUE:
-            question = self._partner.respond(self._prompts["revision_query"])
-            response = input(self._prompts["revision_builder"](question))
-            evaluation = self._teacher.respond(response)
+            # formulate question
+            prompt = self._prompts["partner"]["query_builder"]()
+            question = self._partner.respond(prompt)
+            print(f"Question: {question}")
+
+            # get user's response
+            prompt = self._prompts["teacher"]["input"]
+            response = input(prompt)
+
+            # evaluate response
+            prompt = self._prompts["teacher"]["query_builder"](question, response)
+            evaluation = self._teacher.respond(prompt)
             print(f"Evaluation: {evaluation}")
+
             return ChatStatus.CONTINUE
         elif self._status == ChatCommands.CHANGE_SECTION:
-            description = input(self._prompts["section_input"]).strip()
-
             # get relevant part of lecture
+            prompt = self._prompts["retriever"]["input"]
+            description = input(prompt)
             data = self.retriever.get_relevant_documents(description)
             self._partner.data = "\n\n".join([d.page_content for d in data])
             self._teacher.data = "\n\n".join([d.page_content for d in data])
 
             # update status
             self._status = ChatCommands.CONTINUE
+
             return ChatStatus.CONTINUE
         elif self._status == ChatCommands.QUIT:
             return ChatStatus.QUIT

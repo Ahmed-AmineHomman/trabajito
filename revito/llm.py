@@ -23,6 +23,9 @@ class BaseLLM:
     ) -> str:
         raise NotImplementedError
 
+    def reset_messages(self):
+        self._messages = []
+
     def _build_context(self) -> str:
         return f"{self.context}\n COURS:\n{self.data}"
 
