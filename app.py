@@ -5,9 +5,7 @@ from argparse import ArgumentParser
 from dotenv import load_dotenv
 
 from revito.chat import ChatbotManager, ChatStatus
-from revito.llm import OpenAILLM
-from revito.prompts import CONTEXT_TEACHER, CONTEXT_ASKER
-from revito.utilities import build_retriever
+from revito.prompts import set_prompts
 
 
 def load_parameters() -> argparse.Namespace:
@@ -19,11 +17,19 @@ def load_parameters() -> argparse.Namespace:
         help="input file containing the lecture to revise",
     )
     parser.add_argument(
+        "--language", "-l",
+        type=str,
+        required=False,
+        choices=["fr", "en"],
+        default="fr",
+        help="chatbot language ('fr' or 'en')",
+    )
+    parser.add_argument(
         "--api-key", "-k",
         type=str,
         required=False,
         default=None,
-        help="OpenAI API key",
+        help="OpenAI API key (if none provided, will look for corresponding key in the '.env' file on the app folder)",
     )
     return parser.parse_args()
 
@@ -45,6 +51,7 @@ def welcome() -> str:
 
 if __name__ == "__main__":
     params = load_parameters()
+    prompts = set_prompts(language=params.language)
 
     header = welcome()
     print(header)
@@ -52,20 +59,13 @@ if __name__ == "__main__":
     # load API keys
     load_dotenv()
 
-    # build retriever from document
-    retriever = build_retriever(filepath=params.input)
-
-    # build LLMs
-    partner = OpenAILLM(context=CONTEXT_ASKER)
-    teacher = OpenAILLM(context=CONTEXT_TEACHER)
-
     # initialize manager
-    manager = ChatbotManager(retriever=retriever, partner=partner, teacher=teacher)
+    manager = ChatbotManager(filepath=params.input, prompts=prompts, api_key=params.api_key)
 
     # start chatting
     status = ChatStatus.CONTINUE
     while status == ChatStatus.CONTINUE:
-        command = input("Entrez votre commande ('q' pour quitter l'application, 'c' pour changer de thèmatique, entrée pour continuer): ")
+        command = input(prompts["command_input"])
         status = manager.interpret(command=command)
 
-    print("Au revoir!")
+    print(prompts["goodbye_prompt"])

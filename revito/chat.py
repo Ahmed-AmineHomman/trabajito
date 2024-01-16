@@ -1,7 +1,14 @@
 from enum import Enum
 from typing import Optional
 
-from revito.llm import BaseLLM
+from langchain_community.document_loaders import UnstructuredPDFLoader as PDFLoader, \
+    UnstructuredWordDocumentLoader as WordLoader, UnstructuredHTMLLoader as HTMLLoader
+from langchain_community.vectorstores import FAISS
+from langchain_experimental.text_splitter import SemanticChunker
+from langchain_openai import OpenAIEmbeddings
+
+from revito.llm import OpenAILLM
+from .prompts import set_prompts
 
 
 class ChatCommands(Enum):
@@ -20,13 +27,17 @@ class ChatbotManager:
 
     def __init__(
             self,
-            retriever,
-            partner: BaseLLM,
-            teacher: BaseLLM,
+            filepath: str,
+            prompts: Optional[dict] = None,
+            api_key: Optional[str] = None,
     ):
-        self.retriever = retriever
-        self.partner = partner
-        self.teacher = teacher
+        # build retriever from document
+        self.retriever = _build_retriever(filepath=filepath)
+
+        # build LLMs
+        self._prompts = set_prompts() if prompts is None else prompts
+        self._partner = OpenAILLM(context=self._prompts["partner_context"], api_key=api_key)
+        self._teacher = OpenAILLM(context=self._prompts["teacher_context"], api_key=api_key)
 
     def interpret(
             self,
@@ -47,18 +58,18 @@ class ChatbotManager:
     def _act(self) -> ChatStatus:
         """Performs the action corresponding to the status."""
         if self._status == ChatCommands.CONTINUE:
-            question = self.partner.respond("Pose-moi une question sur le cours.")
-            response = input(f"Question: {question}\nRéponse: ")
-            evaluation = self.teacher.respond(response)
+            question = self._partner.respond(self._prompts["revision_query"])
+            response = input(self._prompts["revision_builder"](question))
+            evaluation = self._teacher.respond(response)
             print(f"Evaluation: {evaluation}")
             return ChatStatus.CONTINUE
         elif self._status == ChatCommands.CHANGE_SECTION:
-            description = input("Décrivez la partie du cours que vous souhaitez réviser.\n>>> ").strip()
+            description = input(self._prompts["section_input"]).strip()
 
             # get relevant part of lecture
             data = self.retriever.get_relevant_documents(description)
-            self.partner.data = "\n\n".join([d.page_content for d in data])
-            self.teacher.data = "\n\n".join([d.page_content for d in data])
+            self._partner.data = "\n\n".join([d.page_content for d in data])
+            self._teacher.data = "\n\n".join([d.page_content for d in data])
 
             # update status
             self._status = ChatCommands.CONTINUE
@@ -67,3 +78,36 @@ class ChatbotManager:
             return ChatStatus.QUIT
         else:
             raise ValueError(f"### Error : unknown status {self._status}")
+
+
+def _build_retriever(
+        filepath: str,
+):
+    # load data from document
+    extension = filepath.split(".")[-1].lower()
+    try:
+        if extension == "pdf":
+            data = PDFLoader(filepath).load()
+        elif extension in ["doc", "docx", "odt"]:
+            data = WordLoader(filepath).load()
+        elif extension == "html":
+            data = HTMLLoader(filepath).load()
+        else:
+            raise ValueError("Unsupported file type")
+    except Exception as error:
+        raise Exception(f"### ERROR (loading): {error}")
+
+    # split text
+    try:
+        data = SemanticChunker(OpenAIEmbeddings()).split_documents(data)
+        data = [d for d in data]
+    except Exception as error:
+        raise Exception(f"### ERROR (splitting): {error}")
+
+    # compute vector store
+    try:
+        retriever = FAISS.from_documents(data, OpenAIEmbeddings()).as_retriever()
+    except Exception as error:
+        raise Exception(f"### ERROR (embedding): {error}")
+
+    return retriever
