@@ -46,7 +46,9 @@ def welcome() -> str:
     title = f"{name}"
     subtitle = f"version {version}, by {author}"
     splitter = "=" * max(len(title), len(subtitle))
-    return f"{splitter}\n{title}\n{splitter}\n{subtitle}\n{splitter}\n"
+    header = f"{splitter}\n{title}\n{splitter}\n{subtitle}\n{splitter}\n"
+
+    return header
 
 
 if __name__ == "__main__":
@@ -64,7 +66,7 @@ if __name__ == "__main__":
 
     # start chatting
     status = ChatStatus.CONTINUE
-    while status == ChatStatus.CONTINUE:
+    while status != ChatStatus.QUIT:
         prompt = prompts["app"]["command"]
         command = input(prompt)
         status = manager.interpret(command=command)
