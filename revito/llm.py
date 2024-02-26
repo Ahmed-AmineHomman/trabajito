@@ -4,8 +4,7 @@ from typing import Optional, Any, List, Dict, Tuple
 from cohere import Client as CohereClient
 from openai import OpenAI
 
-from .prompts import build_system_prompt
-from copy import deepcopy
+from .utils import build_system_prompt
 
 
 class BaseLLM:

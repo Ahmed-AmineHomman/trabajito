@@ -11,7 +11,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_experimental.text_splitter import SemanticChunker
 
 from revito.llm import LLMFactory, BaseLLM
-from revito.prompts import set_prompts
 
 FACTORY = LLMFactory()
 TEACHER: BaseLLM
