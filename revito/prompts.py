@@ -1,3 +1,21 @@
+from typing import Optional, Dict
+
+
+def build_system_prompt(
+        system: Optional[str] = "",
+        sections: Optional[Dict[str, str]] = None
+) -> str:
+    """
+    Builds the system prompt for a given LLM.
+    """
+    if sections is None:
+        sections = {}
+    prompt = system
+    for key, section in sections.items():
+        prompt += f"\n\n### {key.upper().strip()}\n{section}"
+    return prompt
+
+
 def set_prompts(language: str = "fr") -> dict:
     """Sets chatbot system prompts."""
     if language == "fr":
@@ -16,11 +34,9 @@ def _set_prompts_fr() -> dict:
     # partner prompts
     partner_context = """
 Tu es un partenaire de révision.
-A partir d'un corpus de documents, tu dois formuler une question dont la réponse se trouve dans ledit corpus.
-Tu dois respecter les règles suivantes :
-- Tes questions doivent être claires, concises et simples à comprendre.
-- Tes questions doivent trouver leurs réponses dans le cours donné.
-- Tu ne dois poser qu'une seule question à chaque fois.
+L'utilisateur, ton partenaire, doit connaître les notions présentes dans DATA.
+Formules à chacune de ses demandes une seule question sur DATA.
+Formules des questions courtes, et contentes-toi de renvoyer seulement tes questions
     """
     partner_query_builder = lambda: "Pose moi une question sur le cours"
 
@@ -46,11 +62,11 @@ Tu dois respecter les règles suivantes :
             "input": retriever_input,
         },
         "partner": {
-            "context":  partner_context,
+            "context": partner_context,
             "query_builder": partner_query_builder,
         },
         "teacher": {
-            "input":  teacher_input,
+            "input": teacher_input,
             "context": teacher_context,
             "query_builder": teacher_query_builder,
         },
@@ -99,11 +115,11 @@ You must respect the following rules :
             "input": retriever_input,
         },
         "partner": {
-            "context":  partner_context,
+            "context": partner_context,
             "query_builder": partner_query_builder,
         },
         "teacher": {
-            "input":  teacher_input,
+            "input": teacher_input,
             "context": teacher_context,
             "query_builder": teacher_query_builder,
         },
