@@ -1,6 +1,6 @@
 import argparse
 from argparse import ArgumentParser
-from typing import List, Tuple, Any
+from typing import Tuple, Any
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -8,13 +8,11 @@ from langchain_community.document_loaders import UnstructuredPDFLoader as PDFLoa
     UnstructuredWordDocumentLoader as WordLoader, UnstructuredHTMLLoader as HTMLLoader
 from langchain_community.embeddings import CohereEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_experimental.text_splitter import SemanticChunker
 
-from revito.llm import LLMFactory, BaseLLM
+from utils import LLM, split_corpus
 
-FACTORY = LLMFactory()
-TEACHER: BaseLLM
-PARTNER: BaseLLM
+TEACHER: LLM
+PARTNER: LLM
 
 SYSTEM_TEACHER = """
 Evalue la qualité de la réponse de l'utilisateur en prenant en compte ce qui se trouve dans DATA.
@@ -31,19 +29,25 @@ Formules une seule question à chaque demande.
 def load_parameters() -> argparse.Namespace:
     parser = ArgumentParser()
     parser.add_argument(
-        "--model",
+        "--api",
         type=str,
         choices=["openai", "cohere"],
         default="cohere",
-        help="Large language models powering the assistant"
+        help="API providing the LLMs powering the assistant"
+    )
+    parser.add_argument(
+        "--api-key",
+        required=False,
+        type=str,
+        help="token corresponding to the API chosen with the '--api' parameter"
     )
     return parser.parse_args()
 
 
-def build_store(
+def build_retriever(
         filepath: str,
 ) -> Tuple[str, Any]:
-    # load data from document
+    # load corpus
     extension = filepath.split(".")[-1].lower()
     try:
         if extension == "pdf":
@@ -55,106 +59,116 @@ def build_store(
         else:
             raise ValueError("Unsupported file type")
     except Exception as error:
-        raise Exception(f"### ERROR (loading): {error}")
+        return f"### ERROR (loading): {error}", None
 
-    # split text
+    # split corpus
     try:
-        data = SemanticChunker(CohereEmbeddings()).split_documents(data)
-        data = [d for d in data]
+        data = split_corpus(corpus=data, chunk_size=500, chunk_overlap=20)
     except Exception as error:
-        raise Exception(f"### ERROR (splitting): {error}")
+        return f"### ERROR (splitting): {error}", None
 
     # compute vector store
     try:
         retriever = FAISS.from_documents(data, CohereEmbeddings()).as_retriever()
     except Exception as error:
-        raise Exception(f"### ERROR (embedding): {error}")
+        return f"### ERROR (embedding): {error}", None
 
     return "cours intégré", retriever
 
 
-def start(
+def set_theme(
         theme: str,
-        retriever,
-        chat_partner: gr.Chatbot,
-) -> Tuple[str, List[Tuple[str]]]:
+        retriever
+) -> str:
     # collect relevant data
-    data = "\n\n".join([d.page_content for d in retriever.get_relevant_documents(theme)])
+    try:
+        data = "\n\n".join([d.page_content for d in retriever.get_relevant_documents(theme)])
+    except Exception as error:
+        return f"### ERROR (corpus build): {error}"
 
-    # reset llms
-    TEACHER.reset_messages()
-    PARTNER.reset_messages()
+    # reset llm data
     TEACHER.data = data
     PARTNER.data = data
 
-    # formulate question
-    question = PARTNER.respond("Pose-moi une question sur le cours", temperature=0.5)
-    chat_partner.append(("Pose-moi une question sur le cours", question))
-
-    return "thème défini", chat_partner
+    return "thème défini"
 
 
-def respond(
-        query: str,
-        chat_teacher: gr.Chatbot,
-        chat_partner: gr.Chatbot,
-) -> Tuple[str, List[List[str]], List[List[str]]]:
+def get_new_question() -> Tuple[str, str]:
+    """Formulate a new question from the internal data of the PARTNER."""
+    try:
+        question = PARTNER.respond("Pose-moi une question sur le cours", temperature=0.5)
+    except Exception as error:
+        return f"### ERROR (question): {error}", None
+    return "question posée", question
+
+
+def evaluate_response(
+        question: str,
+        response: str,
+) -> Tuple[str, str]:
     """Provide evaluation to the user's response as well as a new question."""
-    # retrieve partner's question
-    question = PARTNER.get_conversation()[-1][1]
-
     # evaluate user's response
-    evaluation = TEACHER.respond(query=f"Question: {question}. User response: {query}", temperature=0.0)
-    chat_teacher.append((query, evaluation))
+    try:
+        evaluation = TEACHER.respond(query=f"Question: {question}. User response: {response}", temperature=0.0)
+    except Exception as error:
+        return f"### ERROR (evaluation): {error}", None
 
-    # formulate new question
-    question = PARTNER.respond("Pose-moi une question sur le cours", temperature=0.5)
-    chat_partner.append((query, question))
-
-    return "évaluation terminée", chat_partner, chat_teacher
+    return "évaluation terminée", evaluation
 
 
 if __name__ == "__main__":
     load_dotenv()
     params = load_parameters()
-    TEACHER = FACTORY(model=params.model, system=SYSTEM_TEACHER)
-    PARTNER = FACTORY(model=params.model, system=SYSTEM_PARTNER)
+    TEACHER = LLM(system=SYSTEM_TEACHER)
+    PARTNER = LLM(system=SYSTEM_PARTNER)
 
     with gr.Blocks() as app:
+        # define UI elements
         gr.Markdown("""
         # Revito
         
         Bienvenue dans Revito, votre assistant de révision. Commencez par fournir votre cours à l'assistant, précisez la thématique que vous souhaitez révisez et c'est parti !
         """)
-        status = gr.Text(label="Status", placeholder="barre de statut")
         with gr.Row():
-            file_explorer = gr.File(label="Choisissez votre cours", file_count="single")
-            load = gr.Button("Charger")
+            corpus_handler = gr.File(label="Déposez ici votre cours", file_count="single")
+            corpus_btn = gr.Button("Charger")
+            status = gr.Text(label="Status", placeholder="barre de statut")
         with gr.Row():
-            theme = gr.Textbox(label="Thématique", placeholder="Décrivez la thématique à réviser ici...")
-            set_theme = gr.Button("Envoyer")
-        with gr.Row():
-            chat_partner = gr.Chatbot()
-            chat_teacher = gr.Chatbot()
-        with gr.Row():
-            query = gr.Textbox(label="Question", placeholder="Posez votre question ici...")
-            clear = gr.ClearButton(components=[query, chat_partner, chat_teacher])
-
+            theme_desc = gr.Textbox(label="Thématique", placeholder="Décrivez la thématique à réviser ici...")
+            with gr.Column():
+                theme_btn = gr.Button("Envoyer")
+                clear_btn = gr.ClearButton(components=[])
+                new_question_btn = gr.Button("Nouvelle question")
+        question_txt = gr.Text(label="Question", placeholder="La question apparaîtra ici.")
+        response_txt = gr.Textbox(label="Réponse", placeholder="Ecrivez votre réponse ici...")
+        evaluation_txt = gr.Text(label="Évaluation", placeholder="La correction apparaîtra ici.")
         retriever = gr.State(value=None)
-        load.click(
-            fn=build_store,
-            inputs=[file_explorer],
+
+        # define UI logic
+        corpus_btn.click(
+            fn=build_retriever,
+            inputs=[corpus_handler],
             outputs=[status, retriever],
         )
-        set_theme.click(
-            fn=start,
-            inputs=[theme, retriever, chat_partner],
-            outputs=[status, chat_partner]
+        theme_desc.submit(
+            fn=set_theme,
+            inputs=[theme_desc, retriever],
+            outputs=[status]
         )
-        query.submit(
-            fn=respond,
-            inputs=[query, chat_partner, chat_teacher],
-            outputs=[status, chat_partner, chat_teacher]
+        theme_btn.click(  # this is a duplicate of `theme_desc.submit`
+            fn=set_theme,
+            inputs=[theme_desc, retriever],
+            outputs=[status]
+        )
+        new_question_btn.click(
+            fn=get_new_question,
+            inputs=[],
+            outputs=[status, question_txt]
+        )
+        response_txt.submit(
+            fn=evaluate_response,
+            inputs=[question_txt, response_txt],
+            outputs=[status, evaluation_txt]
         )
 
     app.launch(share=False)
