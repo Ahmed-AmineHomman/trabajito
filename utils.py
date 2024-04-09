@@ -13,12 +13,14 @@ class LLM:
 
     def __init__(
             self,
-            api_key: Optional[str] = None,
+            model: Optional[str] = "command-r",
             system: Optional[str] = None,
             data: Optional[str] = None,
+            api_key: Optional[str] = None,
     ) -> None:
         if system is None:
             system = "You are a helpful assistant."
+        self.model = model
         self.system = system
         self.data = data
         self._client = CohereClient(api_key=environ["COHERE_API_KEY"] if api_key is None else api_key)
@@ -34,10 +36,11 @@ class LLM:
             sections={"data": self.data} if self.data is not None else {}
         )
         response = self._client.chat(
-            model="command-r",
+            model=self.model,
             preamble=system_prompt,
             chat_history=[],
-            message=query
+            message=query,
+            **kwargs
         )
         return response.text
 

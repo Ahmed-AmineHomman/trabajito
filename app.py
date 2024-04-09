@@ -4,9 +4,9 @@ from typing import Tuple, Any
 
 import gradio as gr
 from dotenv import load_dotenv
+from langchain_cohere import CohereEmbeddings
 from langchain_community.document_loaders import UnstructuredPDFLoader as PDFLoader, \
     UnstructuredWordDocumentLoader as WordLoader, UnstructuredHTMLLoader as HTMLLoader
-from langchain_community.embeddings import CohereEmbeddings
 from langchain_community.vectorstores import FAISS
 
 from utils import LLM, split_corpus
@@ -69,7 +69,7 @@ def build_retriever(
 
     # compute vector store
     try:
-        retriever = FAISS.from_documents(data, CohereEmbeddings()).as_retriever()
+        retriever = FAISS.from_documents(data, CohereEmbeddings(model="embed-multilingual-v3.0")).as_retriever()
     except Exception as error:
         return f"### ERROR (embedding): {error}", None
 
@@ -96,7 +96,7 @@ def set_theme(
 def get_new_question() -> Tuple[str, str]:
     """Formulate a new question from the internal data of the PARTNER."""
     try:
-        question = PARTNER.respond("Pose-moi une question sur le cours", temperature=0.5)
+        question = PARTNER.respond("Pose-moi une question sur le cours", temperature=0.7)
     except Exception as error:
         return f"### ERROR (question): {error}", None
     return "question posée", question
@@ -109,7 +109,7 @@ def evaluate_response(
     """Provide evaluation to the user's response as well as a new question."""
     # evaluate user's response
     try:
-        evaluation = TEACHER.respond(query=f"Question: {question}. User response: {response}", temperature=0.0)
+        evaluation = TEACHER.respond(query=f"Question: {question}. User response: {response}", temperature=0.1)
     except Exception as error:
         return f"### ERROR (evaluation): {error}", None
 
