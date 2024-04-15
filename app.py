@@ -1,6 +1,7 @@
 import argparse
 from argparse import ArgumentParser
-from typing import Tuple, Any
+from pathlib import Path
+from typing import Tuple, Any, Optional
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -31,7 +32,7 @@ def load_parameters() -> argparse.Namespace:
     parser.add_argument(
         "--api",
         type=str,
-        choices=["openai", "cohere"],
+        choices=["cohere"],
         default="cohere",
         help="API providing the LLMs powering the assistant"
     )
@@ -45,17 +46,22 @@ def load_parameters() -> argparse.Namespace:
 
 
 def build_retriever(
-        filepath: str,
+        filepath: Optional[str],
 ) -> Tuple[str, Any]:
+    if not filepath:
+        return "", None
+    fp = Path(filepath)
+
     # load corpus
-    extension = filepath.split(".")[-1].lower()
+    filename = Path(filepath).name
+    extension = filename.split(".")[-1].lower()
     try:
         if extension == "pdf":
-            data = PDFLoader(filepath).load()
+            data = PDFLoader(fp).load()
         elif extension in ["doc", "docx", "odt"]:
-            data = WordLoader(filepath).load()
+            data = WordLoader(fp).load()
         elif extension == "html":
-            data = HTMLLoader(filepath).load()
+            data = HTMLLoader(fp).load()
         else:
             raise ValueError("Unsupported file type")
     except Exception as error:
@@ -87,6 +93,8 @@ def set_theme(
         return f"### ERROR (corpus build): {error}"
 
     # reset llm data
+    TEACHER.reset()
+    PARTNER.reset()
     TEACHER.data = data
     PARTNER.data = data
 
@@ -107,22 +115,20 @@ def evaluate_response(
         response: str,
 ) -> Tuple[str, str]:
     """Provide evaluation to the user's response as well as a new question."""
-    # evaluate user's response
     try:
         evaluation = TEACHER.respond(query=f"Question: {question}. User response: {response}", temperature=0.1)
     except Exception as error:
         return f"### ERROR (evaluation): {error}", None
-
-    return "évaluation terminée", evaluation
+    return "évaluation terminée", evaluation, response
 
 
 if __name__ == "__main__":
     load_dotenv()
     params = load_parameters()
-    TEACHER = LLM(system=SYSTEM_TEACHER)
-    PARTNER = LLM(system=SYSTEM_PARTNER)
+    TEACHER = LLM(system=SYSTEM_TEACHER, api_key=params.api_key)
+    PARTNER = LLM(system=SYSTEM_PARTNER, api_key=params.api_key)
 
-    with gr.Blocks() as app:
+    with gr.Blocks(title="Revito") as app:
         # define UI elements
         gr.Markdown("""
         # Revito
@@ -130,34 +136,39 @@ if __name__ == "__main__":
         Bienvenue dans Revito, votre assistant de révision. Commencez par fournir votre cours à l'assistant, précisez la thématique que vous souhaitez révisez et c'est parti !
         """)
         with gr.Row():
-            corpus_handler = gr.File(label="Déposez ici votre cours", file_count="single")
-            corpus_btn = gr.Button("Charger")
-            status = gr.Text(label="Status", placeholder="barre de statut")
+            status = gr.Text(label="Status", placeholder="barre de statut", scale=3)
+            corpus_btn = gr.UploadButton("Charger", scale=1)
         with gr.Row():
-            theme_desc = gr.Textbox(label="Thématique", placeholder="Décrivez la thématique à réviser ici...")
-            with gr.Column():
+            theme_input = gr.Textbox(label="Thématique", placeholder="Décrivez la thématique à réviser ici...", scale=3)
+            with gr.Column(scale=1):
                 theme_btn = gr.Button("Envoyer")
-                clear_btn = gr.ClearButton(components=[])
+                clear_btn = gr.ClearButton(components=[], value="Réinitialiser")
                 new_question_btn = gr.Button("Nouvelle question")
-        question_txt = gr.Text(label="Question", placeholder="La question apparaîtra ici.")
-        response_txt = gr.Textbox(label="Réponse", placeholder="Ecrivez votre réponse ici...")
-        evaluation_txt = gr.Text(label="Évaluation", placeholder="La correction apparaîtra ici.")
+        with gr.Row():
+            with gr.Column(scale=1):
+                question_txt = gr.Text(label="Question", placeholder="La question apparaîtra ici.", interactive=False)
+                response_txt = gr.Text(label="Réponse", placeholder="Votre réponse apparaîtra ici.", interactive=False)
+            evaluation_txt = gr.Text(label="Évaluation", placeholder="La correction apparaîtra ici.", interactive=False,
+                                     scale=2)
+        with gr.Row():
+            user_input = gr.Textbox(label="Votre réponse", placeholder="Répondez ici à la question", scale=3)
+            user_btn = gr.Button("Envoyer", scale=1)
         retriever = gr.State(value=None)
 
         # define UI logic
-        corpus_btn.click(
+        corpus_btn.upload(
             fn=build_retriever,
-            inputs=[corpus_handler],
+            inputs=[corpus_btn],
             outputs=[status, retriever],
         )
-        theme_desc.submit(
+        theme_input.submit(
             fn=set_theme,
-            inputs=[theme_desc, retriever],
+            inputs=[theme_input, retriever],
             outputs=[status]
         )
         theme_btn.click(  # this is a duplicate of `theme_desc.submit`
             fn=set_theme,
-            inputs=[theme_desc, retriever],
+            inputs=[theme_input, retriever],
             outputs=[status]
         )
         new_question_btn.click(
@@ -165,10 +176,15 @@ if __name__ == "__main__":
             inputs=[],
             outputs=[status, question_txt]
         )
-        response_txt.submit(
+        user_input.submit(
             fn=evaluate_response,
-            inputs=[question_txt, response_txt],
-            outputs=[status, evaluation_txt]
+            inputs=[question_txt, user_input],
+            outputs=[status, evaluation_txt, response_txt]
+        )
+        user_btn.click(  # this is a duplicate of `user_input.submit`
+            fn=evaluate_response,
+            inputs=[question_txt, user_input],
+            outputs=[status, evaluation_txt, response_txt]
         )
 
     app.launch(share=False)

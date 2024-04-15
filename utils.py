@@ -8,7 +8,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 class LLM:
     _client: Any
-    system: str
+    _messages: list
+    _system: str
     data: str
 
     def __init__(
@@ -21,8 +22,9 @@ class LLM:
         if system is None:
             system = "You are a helpful assistant."
         self.model = model
-        self.system = system
         self.data = data
+        self._system = system
+        self._messages = []
         self._client = CohereClient(api_key=environ["COHERE_API_KEY"] if api_key is None else api_key)
 
     def respond(
@@ -32,17 +34,23 @@ class LLM:
     ) -> str:
         """Responds to the user's query."""
         system_prompt = build_system_prompt(
-            system=self.system,
+            system=self._system,
             sections={"data": self.data} if self.data is not None else {}
         )
         response = self._client.chat(
             model=self.model,
             preamble=system_prompt,
-            chat_history=[],
+            chat_history=self._messages,
             message=query,
             **kwargs
         )
+        self._messages.append({"role": "USER", "message": query})
+        self._messages.append({"role": "CHATBOT", "message": response.text})
         return response.text
+
+    def reset(self):
+        self.data = ""
+        self._messages = []
 
 
 def build_system_prompt(

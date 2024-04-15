@@ -13,3 +13,4 @@ opencv-python
 pikepdf
 pypdf
 gradio
+pillow_heif
