@@ -1,3 +1,9 @@
+---
+title: Revito
+app_file: app.py
+sdk: gradio
+sdk_version: 4.26.0
+---
 # Revito
 
 Une interface web simpliste vous aidant à réviser vos cours.
