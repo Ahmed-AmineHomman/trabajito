@@ -4,6 +4,7 @@ app_file: app.py
 sdk: gradio
 sdk_version: 4.26.0
 ---
+
 # Revito
 
 Une interface web simpliste vous aidant à réviser vos cours.
@@ -17,6 +18,13 @@ dépôt, et installez les dépendances de la solution :
 ```shell
 python -m pip install -r requirements.txt
 ```
+
+**Remarque** : l'application utilise la bibliothèque [`unstructured`](https://github.com/Unstructured-IO/unstructured)
+pour charger et récupérer le contenu des documents fournis. Cette application, par nature, nécessite de nombreuses
+dépendances qui ne sont potentiellement pas toutes prises en charge par l'installation de la bibliothèque. Si
+l'application échoue à charger vos documents, veuillez vous référer à
+la [documentation officielle](https://github.com/Unstructured-IO/unstructured#installing-the-library) pour plus de
+détails concernant les dépendances additionnelles à installer.
 
 Une fois que l'installation est terminée, vous pouvez lancer l'application en exécutant le script [app.py](app.py) :
 
@@ -64,7 +72,7 @@ python app.py --help
 ### Authentification
 
 L'application utilise des LLMs (pour *Large Language Models*) qui vont générer des questions de révisions puis évaluer
-vos réponses. Actuellement, seule les LLMs proposés par [Cohere](https://cohere.com/) sont pris en charge par
+vos réponses. Actuellement, seuls les LLMs proposés par [Cohere](https://cohere.com/) sont pris en charge par
 l'application. Cohere offre [une API](https://docs.cohere.com/) permettant d'utiliser ses LLMs. Cette API dispose d'une
 version gratuite permettant d'utiliser, de manière limitée en fréquence, tous les LLMs proposés par l'entreprise.
 Cependant, la limite d'appels à l'API imposée par la version gratuite permet amplement un usage personnel comme celui

@@ -4,6 +4,7 @@ from typing import Optional, Any, Dict, Iterable
 from cohere import Client as CohereClient
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from unstructured.partition.auto import partition
 
 
 class LLM:
@@ -66,6 +67,12 @@ def build_system_prompt(
     for key, section in sections.items():
         prompt += f"\n\n### {key.upper().strip()}\n{section}"
     return prompt
+
+
+def load_corpus(filepath: str) -> Iterable[Document]:
+    """Loads a document from a given file path."""
+    chunks = partition(filename=filepath)
+    return [Document(page_content=chunk.text, metadata={"source": filepath}) for chunk in chunks]
 
 
 def split_corpus(
