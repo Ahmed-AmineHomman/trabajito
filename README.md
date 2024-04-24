@@ -21,10 +21,9 @@ python -m pip install -r requirements.txt
 
 **Remarque** : l'application utilise la bibliothèque [`unstructured`](https://github.com/Unstructured-IO/unstructured)
 pour charger et récupérer le contenu des documents fournis. Cette application, par nature, nécessite de nombreuses
-dépendances qui ne sont potentiellement pas toutes prises en charge par l'installation de la bibliothèque. Si
-l'application échoue à charger vos documents, veuillez vous référer à
-la [documentation officielle](https://github.com/Unstructured-IO/unstructured#installing-the-library) pour plus de
-détails concernant les dépendances additionnelles à installer.
+dépendances qui ne sont potentiellement pas toutes prises en charge par l'installation de la bibliothèque. Ces dépendances sont listées dans [ce fichier](packages.txt). Si
+l'application échoue à charger vos documents, installez toutes les dépendances listées dans le fichier précédent puis essayez de nouveau. Pour les utilisateurs de windows, veuillez vous référer à
+la [documentation officielle](https://github.com/Unstructured-IO/unstructured#installing-the-library) pour les consignes d'installation.
 
 Une fois que l'installation est terminée, vous pouvez lancer l'application en exécutant le script [app.py](app.py) :
 
