@@ -1,17 +1,17 @@
 ---
-title: Revito
+title: Trabajito
 app_file: app.py
 sdk: gradio
 sdk_version: 4.26.0
 ---
 
-# Revito
+# Trabajito
 
 Une interface web simpliste vous aidant à réviser vos cours.
 
 ## Installation
 
-Pour installer ``revito``, il vous suffit de cloner ce dépôt sur votre ordinateur (bouton vert en haut de la page sur
+Pour installer ``trabajito``, il vous suffit de cloner ce dépôt sur votre ordinateur (bouton vert en haut de la page sur
 GitHub). Ensuite, naviguez à l'aide de votre invite de commande préférée dans le dossier dans lequel vous avez cloné ce
 dépôt, et installez les dépendances de la solution :
 
