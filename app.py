@@ -1,9 +1,10 @@
 import argparse
 import os
 from argparse import ArgumentParser
-from typing import Tuple, Any, Optional
+from typing import Tuple, Any, Optional, List
 
 import gradio as gr
+import pandas as pd
 from dotenv import load_dotenv
 from langchain_cohere import CohereEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -29,12 +30,17 @@ TEACHER: LLM
 PARTNER: LLM
 
 SYSTEM_TEACHER = """
-Evalue la qualité de la réponse de l'utilisateur en prenant en compte ce qui se trouve dans DATA.
-Fournis une note de 1 à 5 (sois strict), que tu justifieras.
-Prends soin de toujours donner la bonne réponse après ton évaluation.
+Tu es un assistant IA aidant un professeur à évaluer les réponses de ses étudiants.
+Le professeur, ton utilisateur, va te fournir une question à propos de ce qui se trouve dans DATA et des réponses à la question proposées par ses étudiants
+Prends soin de toujours renvoyer uniquement l'évaluation demandée par le professeur.
+Utilises toujours un langage courtois et neutre.
+Prends soin de bien justifier toute affirmation ou évaluation que te demanderas le professeur.
+Cites les éléments de DATA que tu utilises pour tes évaluations.
+Renvoies une évaluation que le professeur pourra directement transmettre à l'étudiant.
 """
 SYSTEM_PARTNER = """
-A chaque demande de l'utilisateur, formules une question à l'utilisateur à propos de ce qui se trouve dans DATA.
+Tu es un assistant IA aidant un étudiant, ton utilisateur, à réviser ses cours, décrits dans DATA.
+A chacune de ses demandes, formules une question relative à ce qui se trouve dans DATA.
 Formules des questions courtes.
 Réponds uniquement avec ta question, rien d'autre.
 Formules une seule question à chaque demande.
@@ -54,7 +60,7 @@ def load_parameters() -> argparse.Namespace:
 
 def build_retriever(
         filepath: Optional[str],
-) -> Tuple[Any, str]:
+) -> Any:
     """Builds the retriever associated with the provided corpus."""
     # load corpus
     if not filepath:
@@ -76,13 +82,14 @@ def build_retriever(
         raise gr.Error(f"### ERROR (embedding): {error}")
 
     gr.Info("Corpus chargé.")
-    return retriever, filepath
+    return retriever
 
 
 def set_theme(
         theme: str,
+        scores: pd.DataFrame,
         retriever
-) -> str:
+) -> Tuple[List[List[str]], str, pd.DataFrame]:
     # collect relevant data
     try:
         data = "\n\n".join([d.page_content for d in retriever.get_relevant_documents(theme)])
@@ -95,28 +102,116 @@ def set_theme(
     TEACHER.data = data
     PARTNER.data = data
 
+    # reset scores
+    scores = pd.DataFrame({
+        "indicateur": ["note", "# réponses", "moyenne"],
+        "valeur": [0.0, 0.0, 0.0]
+    }).astype({"indicateur": str, "valeur": float})
+
     gr.Info("thème défini")
+    return [], data, scores
 
 
-def get_new_question() -> str:
-    """Formulate a new question from the internal data of the PARTNER."""
+def evaluate_response(
+        response: str,
+        discussion: List[List[str]],
+        scores: pd.DataFrame,
+        data: str,
+) -> Tuple[pd.DataFrame, str, List[List[str]]]:
+    """Provide evaluation to the user's response as well as a new question."""
+    # evaluate response to existing question
+    if len(discussion) > 0:
+        question = discussion[-1][1]
+        try:
+            # retrieve evaluation
+            TEACHER.reset()
+            TEACHER.data = data
+            evaluation = TEACHER.respond(
+                query=f"""
+La question formulée est la suivante: {question}.
+La réponse de mon étudiant est la suivante: {response}
+Evalue la qualité de cette réponse s'il te plaît.
+""".replace("\n", " ").strip(),
+                temperature=0.1
+            )
+            grade = TEACHER.respond(
+                query="""
+En fonction de ton évaluation, donnes-moi la note, de 1 à 5, que tu donnerais à cette réponse.
+Renvoies-moi uniquement la note, et rien d'autre s'il te plaît.
+""".replace("\n", " ").strip(),
+                temperature=0.1
+            )
+
+            # update scores
+            scores = scores.astype({"indicateur": str, "valeur": float})
+            grade = eval(grade)
+            n = scores["valeur"].iloc[1]
+            mu = scores["valeur"].iloc[2]
+            scores["valeur"].iloc[0] = grade
+            scores["valeur"].iloc[1] = n + 1
+            scores["valeur"].iloc[2] = (n * mu + grade) / (n + 1)
+        except Exception as error:
+            raise gr.Error(f"### ERROR (evaluation): {error}")
+    else:
+        evaluation = ""
+
+    # retrieve new question
     try:
         question = PARTNER.respond("Pose-moi une question sur le cours", temperature=0.7)
     except Exception as error:
         raise gr.Error(f"### ERROR (question): {error}")
-    return question
+
+    return scores, evaluation, discussion + [[response, question]]
 
 
-def evaluate_response(
-        question: str,
-        response: str,
-) -> Tuple[str, str]:
-    """Provide evaluation to the user's response as well as a new question."""
-    try:
-        evaluation = TEACHER.respond(query=f"Question: {question}. User response: {response}", temperature=0.1)
-    except Exception as error:
-        raise gr.Error(f"### ERROR (evaluation): {error}")
-    return evaluation, response
+def build_ui() -> gr.Blocks:
+    with gr.Blocks(title="Revito") as app:
+        # define UI elements
+        gr.Markdown(f"# {APP_NAME}\n\n{APP_DESCRIPTION}")
+        with gr.Accordion(label="Corpus & Paramètres"):
+            with gr.Row():
+                corpus_btn = gr.UploadButton("Corpus", scale=1)
+                theme_btn = gr.Button("Charger", scale=1)
+                theme = gr.Text(label="Thématique", placeholder="Décrivez la thématique à réviser ici...", scale=3)
+        with gr.Row():
+            with gr.Column(scale=3):
+                chat = gr.Chatbot(label="Discussion")
+                answer = gr.Textbox(label="Réponse", placeholder="Répondez ici à la question")
+            with gr.Column(scale=1):
+                scores = gr.DataFrame(
+                    interactive=False,
+                    headers=["indicateur", "valeur"],
+                    row_count=3,
+                    col_count=2,
+                    datatype=["str", "number"],
+                )
+                answer_eval = gr.TextArea(label="Correction", interactive=False)
+                answer_btn = gr.Button("Répondre", scale=1, variant="primary")
+        retriever = gr.State(value=None)
+        data = gr.State(value="")
+
+        # define UI logic
+        corpus_btn.upload(
+            fn=build_retriever,
+            inputs=[corpus_btn],
+            outputs=[retriever],
+        )
+        theme_btn.click(
+            fn=set_theme,
+            inputs=[theme, scores, retriever],
+            outputs=[chat, data, scores]
+        )
+        answer.submit(  # this is a duplicate of `answer_btn.click`
+            fn=evaluate_response,
+            inputs=[answer, chat, scores, data],
+            outputs=[scores, answer_eval, chat]
+        )
+        answer_btn.click(
+            fn=evaluate_response,
+            inputs=[answer, chat, scores, data],
+            outputs=[scores, answer_eval, chat]
+        )
+    return app
 
 
 if __name__ == "__main__":
@@ -131,57 +226,5 @@ if __name__ == "__main__":
     TEACHER = LLM(system=SYSTEM_TEACHER, api_key=params.api_key)
     PARTNER = LLM(system=SYSTEM_PARTNER, api_key=params.api_key)
 
-    # build ui
-    with gr.Blocks(title="Revito") as app:
-        # define UI elements
-        gr.Markdown(f"# {APP_NAME}\n\n{APP_DESCRIPTION}")
-        with gr.Row():
-            corpus_btn = gr.UploadButton("Charger", scale=1)
-            filepath_text = gr.Textbox(label="Fichier", placeholder="chemin du fichier", interactive=False, scale=3)
-        with gr.Row():
-            theme_input = gr.Textbox(label="Thématique", placeholder="Décrivez la thématique à réviser ici...", scale=3)
-            theme_btn = gr.Button("Envoyer", scale=1)
-        with gr.Row():
-            question_txt = gr.Textbox(label="Question", interactive=False)
-            response_txt = gr.Textbox(label="Votre Réponse", interactive=False)
-            evaluation_txt = gr.Textbox(label="Correction", interactive=False)
-        with gr.Row():
-            user_input = gr.Textbox(label="Réponse", placeholder="Répondez ici à la question", scale=3)
-            user_btn = gr.Button("Répondre", scale=1)
-            new_question_btn = gr.Button("Nouvelle question", scale=1)
-            clear_btn = gr.ClearButton(components=[], value="Réinitialiser", scale=1)
-        retriever = gr.State(value=None)
-
-        # define UI logic
-        corpus_btn.upload(
-            fn=build_retriever,
-            inputs=[corpus_btn],
-            outputs=[retriever, filepath_text],
-        )
-        theme_input.submit(
-            fn=set_theme,
-            inputs=[theme_input, retriever],
-            outputs=[]
-        )
-        theme_btn.click(  # this is a duplicate of `theme_desc.submit`
-            fn=set_theme,
-            inputs=[theme_input, retriever],
-            outputs=[]
-        )
-        new_question_btn.click(
-            fn=get_new_question,
-            inputs=[],
-            outputs=[question_txt]
-        )
-        user_input.submit(
-            fn=evaluate_response,
-            inputs=[question_txt, user_input],
-            outputs=[evaluation_txt, response_txt]
-        )
-        user_btn.click(  # this is a duplicate of `user_input.submit`
-            fn=evaluate_response,
-            inputs=[question_txt, user_input],
-            outputs=[evaluation_txt, response_txt]
-        )
-
-    app.launch(share=False)
+    # run app
+    build_ui().launch(share=False)

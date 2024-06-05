@@ -5,3 +5,4 @@ langchain
 langchain-cohere
 python-dotenv
 unstructured[all-docs]
+pandas

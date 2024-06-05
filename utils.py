@@ -53,6 +53,14 @@ class LLM:
         self.data = ""
         self._messages = []
 
+    def count_tokens(self, text: str) -> int:
+        """Counts the number of tokens in a given text."""
+        response = (
+            self._client
+            .tokenize(text=text, model=self.model)
+        )
+        return len(response.tokens)
+
 
 def build_system_prompt(
         system: Optional[str] = "",
