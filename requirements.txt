@@ -6,4 +6,4 @@ langchain-cohere
 langchain-community
 python-dotenv
 unstructured[all-docs]
-pandas
+tomli
