@@ -26,8 +26,15 @@ class Chunk:
     def from_element(element: Element):
         return Chunk(text=element.text, metadata=element.metadata.to_dict())
 
+    @staticmethod
+    def from_dict(data: dict):
+        return Chunk(text=data["text"], metadata=data["metadata"], context=data["context"])
+
     def to_dict(self) -> Dict:
         return dict(text=self.text, metadata=self.metadata, context=self.context)
+
+    def to_string(self) -> str:
+        return f"Text: {self.text}\nContext: {self.context}"
 
 
 def augment(
