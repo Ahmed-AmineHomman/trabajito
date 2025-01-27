@@ -21,22 +21,16 @@ Arguments:
     --files: List of files to process.
     --database: Path to the database containing the embeddings (default: ./data/embeddings.db).
 """
-import copy
 import json
 import logging
+import os
 from argparse import ArgumentParser, Namespace
-from typing import List, Dict
+from pathlib import Path
 
-import torch
-from transformers import DynamicCache
-from unstructured.chunking.title import chunk_by_title
 from unstructured.cleaners.core import clean
-from unstructured.documents.elements import Element
-from unstructured.partition.auto import partition
 
 from api.clients import TransformersClient
-
-DEPOSIT_ID = "meta-llama/Llama-3.2-3B-Instruct"
+from api.utils import load_and_chunk, Chunk, augment
 
 
 def load_parameters() -> Namespace:
@@ -55,8 +49,14 @@ def load_parameters() -> Namespace:
     parser.add_argument(
         "--database",
         required=False,
-        default="./docs.json",
-        help="Path to the database containing the embeddings."
+        default="./data",
+        help="Directory where JSON databases will be exported."
+    )
+    parser.add_argument(
+        "--deposit_id",
+        required=False,
+        default="meta-llama/Llama-3.2-3B-Instruct",
+        help="The deposit id of the Hugging Face hub corresponding to the LLM performing the augmentation."
     )
     return parser.parse_args()
 
@@ -71,86 +71,33 @@ def process(input: str) -> str:
     return output
 
 
-def augment(
-        chunks: List[Element],
-        client: TransformersClient
-) -> List[Dict]:
-    """
-    Improves the chunks by adding context from associated document.
-
-    This method uses the technique describe `here <https://www.anthropic.com/news/contextual-retrieval>`_.
-    """
-    instructions = """
-Consider the following document:
-
-<document>
-
-Provide a short context describing how the following chunk locates in the above document:
-
-<chunk>
-
-Answer only with the succinct context and nothing else, without introduction nor explanation.
-"""
-
-    # build full document
-    document = "\n".join([c.text for c in chunks])
-
-    # caching common part
-    prompt_cache = DynamicCache()
-    initial_prompt = instructions.split("<chunk>")[0].replace("<document>", document)
-    inputs = client.pipe.tokenizer(initial_prompt, return_tensors="pt").to("cuda")
-    with torch.no_grad():
-        prompt_cache = client.pipe.model(
-            **inputs,
-            past_key_values=prompt_cache
-        ).past_key_values  # this is the common prompt cached
-
-    corpus: List[Dict[str, str]] = []
-    for chunk in chunks:
-        # initialize new entry
-        doc = dict(content=chunk.text, metadata=chunk.metadata.to_dict())
-
-        # build full prompt
-        prompt = (
-            instructions
-            .replace("<document>", document)
-            .replace("<chunk>", chunk.text)
-        )
-
-        # compute chunk context in the document
-        new_inputs = client.pipe.tokenizer(prompt, return_tensors="pt").to("cuda")
-        past_key_values = copy.deepcopy(prompt_cache)
-        outputs = client.pipe.model.generate(**new_inputs, past_key_values=past_key_values, max_new_tokens=256)
-        doc["context"] = client.pipe.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0][len(prompt):]
-
-        corpus.append(doc)
-
-    return corpus
-
-
 def main(parameters):
     """Applies the text processing pipeline."""
-    logging.info("loading corpus")
-    corpus = {f: partition(filename=f) for f in parameters.files}
-
-    logging.info("processing chunks")
-    for file, docs in corpus.items():
-        corpus[file] = chunk_by_title(elements=docs, max_characters=512, overlap=20)
-
-    corpus = {f: chunks[:3] for f, chunks in corpus.items()}
-
     logging.info("loading llm...")
-    client = TransformersClient()
-    client.load(model_id=DEPOSIT_ID)
+    client = TransformersClient(model_id=parameters.deposit_id)
 
-    # augment chunks
-    for file, docs in corpus.items():
-        logging.info("augmenting chunks for file: %s", file)
-        corpus[file] = augment(chunks=docs, client=client)
+    for file in parameters.files:
+        logging.info(f"starting pipeline for {file}")
+        if not os.path.exists(file):
+            message = f"File not found: {file}"
+            logging.warning(message)
+            pass
+        filepath = Path(file)
 
-    logging.info("saving corpus...")
-    with open(parameters.database, "w") as f:
-        json.dump(corpus, f, indent=4, ensure_ascii=True)
+        logging.info("chunking file")
+        corpus = load_and_chunk(filepath.as_posix())
+
+        logging.info("apply processing pipeline")
+        corpus = [Chunk(text=process(c.text), metadata=c.metadata) for c in corpus]
+
+        corpus = corpus[:3]
+
+        logging.info("augmenting chunks")
+        corpus = augment(chunks=corpus, client=client)
+
+        logging.info("saving corpus...")
+        with open(os.path.join(parameters.database, f"{filepath.stem}.json"), "w") as f:
+            json.dump([c.to_dict() for c in corpus], f, indent=4, ensure_ascii=True)
 
 
 if __name__ == "__main__":
