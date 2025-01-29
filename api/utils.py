@@ -2,7 +2,6 @@ import copy
 from typing import List, Dict
 from typing import Optional
 
-import numpy as np
 import torch
 from transformers import DynamicCache
 from unstructured.chunking.basic import chunk_elements

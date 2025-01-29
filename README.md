@@ -11,25 +11,68 @@ Une interface web simpliste vous aidant à réviser vos cours.
 
 ## Installation
 
-Pour installer ``trabajito``, il vous suffit de cloner ce dépôt sur votre ordinateur (bouton vert en haut de la page sur
-GitHub). Ensuite, naviguez à l'aide de votre invite de commande préférée dans le dossier dans lequel vous avez cloné ce
-dépôt, et installez les dépendances de la solution :
+Pour installer ``trabajito``, vous devez commencer par récupérer le code source. Pour cela, vous pouvez soit cloner ce
+dépôt via `git` soit télécharger depuis GitHub le code source et l'extraire dans le dossier de votre choix.
+
+Si vous souhaitez passer par `git`, il vous faut tout d'abord installer l'outil
+depuis [le site officiel](https://git-scm.com/). Une fois `git` installé, ouvrez une invite de commande et tapez la
+commande suivante :
 
 ```shell
-python -m pip install -r requirements.txt
+git clone https://github.com/Ahmed-AmineHomman/trabajito.git mon_dossier
 ```
 
-**Remarque** : l'application utilise la bibliothèque [`unstructured`](https://github.com/Unstructured-IO/unstructured)
-pour charger et récupérer le contenu des documents fournis. Cette application, par nature, nécessite de nombreuses
-dépendances qui ne sont potentiellement pas toutes prises en charge par l'installation de la bibliothèque. Ces dépendances sont listées dans [ce fichier](packages.txt). Si
-l'application échoue à charger vos documents, installez toutes les dépendances listées dans le fichier précédent puis essayez de nouveau. Pour les utilisateurs de windows, veuillez vous référer à
-la [documentation officielle](https://github.com/Unstructured-IO/unstructured#installing-the-library) pour les consignes d'installation.
+où `mon_dossier` est le nom du dossier dans lequel vous souhaitez cloner le dépôt. Si vous ne spécifiez pas de nom de
+dossier, `git` créera un dossier nommé `trabajito` dans le dossier courant.
+
+Une fois le code source récupéré, il vous faudra installer les dépendances externes, i.e. non inclus dans Python,
+nécessaires pour que l'application fonctionne. Veuillez vous référer à la
+section [Dépendances Externes](#dépendances-externes) pour plus d'informations sur ces dépendances.
+
+Une fois toutes les dépendances externes installées, vous pouvez passer à l'installation de l'application à proprement
+dit. Pour cela, ouvrez une invite de commande à l'endroit où vous avez placé le code source et tapez la commande
+suivante :
+
+```shell
+python -m pip install .
+```
+
+**Remarque** : il est conseillé d'installer l'application dans un environnement virtuel pour éviter tout conflit de
+version. Pour cela, vous pouvez suivre les instructions données dans la
+section [Environnement virtuel](#environnement-virtuel).
+
+## Démarrer l'application
 
 Une fois que l'installation est terminée, vous pouvez lancer l'application en exécutant le script [app.py](app.py) :
 
 ```shell
 python app.py
 ```
+
+L'application devrait alors se lancer et vous afficher un lien (dans le terminal) vers lequel vous pouvez vous rendre
+pour accéder à l'interface web.
+
+**Remarque** : selon le choix du LLM motorisant l'application (qui dépendra probablement de votre configuration
+matérielle et/ou de votre budget), il est possible que vous nécessitiez d'obtenir une clé d'API pour pouvoir utiliser
+l'application. Pour plus d'informations, veuillez vous référer à la section [Authentification](#authentification).
+
+Pour une documentation des différents paramètres exposés par l'application, appelez [app.py](app.py) avec le
+paramètre ``--help`` :
+
+```shell
+python app.py --help
+```
+
+## Annexes
+
+### Dépendances Externes
+
+L'application utilise la bibliothèque [`unstructured`](https://github.com/Unstructured-IO/unstructured)
+pour charger et récupérer le contenu des documents fournis. Cette application, par nature, nécessite de nombreuses
+dépendances qui ne sont potentiellement pas toutes prises en charge par l'installation de la bibliothèque. Ces
+dépendances doivent donc être installées manuellement au préalable de l'utilisation de l'application. Vous pouvez vous
+référer sur la [documentation officielle](https://docs.unstructured.io/open-source/installation/full-installation) pour
+plus de détails sur cette étape.
 
 ### Environnement virtuel
 
@@ -52,22 +95,6 @@ venv/Scripts/activate
 Vous aurez alors activé l'environnement virtuel, et pourrez donc installer les dépendances
 dans [requirements.txt](requirements.txt) puis lancer l'application.
 
-## Utilisation
-
-L'application se lance tout simplement en appelant le fichier [app.py](app.py) avec l'environnement Python de votre
-choix :
-
-```shell
-python app.py
-```
-
-Pour une documentation des différents paramètres exposés par l'application, appelez [app.py](app.py) avec le
-paramètre ``--help`` :
-
-```shell
-python app.py --help
-```
-
 ### Authentification
 
 L'application utilise des LLMs (pour *Large Language Models*) qui vont générer des questions de révisions puis évaluer
@@ -86,9 +113,18 @@ deux méthodes pour la renseigner à `revito` :
     python app.py --api-key API_TOKEN
     ```
    où ``API_TOKEN`` correspond à votre clé d'API.
-2. Créer un fichier `.env` dans le même dossier que [app.py](app.py), contenant la ligne suivante :
+2. Créer une variable d'environnement `COHERE_API_KEY` sur votre système d'exploitation et définir sa valeur à votre clé
+   d'API. Une fois cette variable créée, redémarrez éventuellement l'application afin que cette dernière puisse avoir
+   accès à la variable que vous venez de créer.
+3. Au préalable de lancer l'application, créez la variable d'environnement `COHERE_API_KEY` directement dans le
+   terminal. Cela peut se faire via la commande suivante:
+   ```shell
+   $env:COHERE_API_KEY="API_TOKEN"; python app.py
    ```
-   COHERE_API_KEY=API_TOKEN
+   si vous êtes sur Windows, ou
+   ```shell
+   export COHERE_API_KEY="API_TOKEN"; python app.py
    ```
-   où ``API_TOKEN`` correspond à votre clé d'API. Ce fichier sera lu au démarrage par l'application et la clé sera ainsi
-   chargée.
+   si vous êtes sur un système Unix, où `API_TOKEN` correspond à votre clé d'API.
+
+### Unstructured
