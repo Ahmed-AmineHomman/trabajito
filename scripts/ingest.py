@@ -15,7 +15,7 @@ Dependencies:
 - `torch` library for handling tensor operations.
 
 Usage:
-    python process_docs.py --files <file1> <file2> ... [--database <path_to_database>]
+    python ingest.py --files <file1> <file2> ... [--database <path_to_database>]
 
 Arguments:
     --files: List of files to process.
@@ -29,8 +29,8 @@ from pathlib import Path
 
 from unstructured.cleaners.core import clean
 
-from api.clients import TransformersClient
-from api.utils import load_and_chunk, Chunk, augment
+from api.clients import TransformersClient, SentenceTransformerClient
+from api.utils import load_and_chunk, Chunk, augment, embed
 
 
 def load_parameters() -> Namespace:
@@ -41,22 +41,28 @@ def load_parameters() -> Namespace:
                     "and saves the processed chunks into a JSON file for creating an embeddings database."
     )
     parser.add_argument(
-        "--files",
+        "--inputs",
         nargs="+",
         required=True,
         help="The files to process."
     )
     parser.add_argument(
-        "--database",
+        "--output",
         required=False,
         default="./data",
         help="Directory where JSON databases will be exported."
     )
     parser.add_argument(
-        "--deposit_id",
+        "--llm_id",
         required=False,
         default="meta-llama/Llama-3.2-3B-Instruct",
         help="The deposit id of the Hugging Face hub corresponding to the LLM performing the augmentation."
+    )
+    parser.add_argument(
+        "--encoder_id",
+        required=False,
+        default="nomic-ai/modernbert-embed-base",
+        help="The deposit id of the model in the sentence_transformers library computing the text embeddings."
     )
     return parser.parse_args()
 
@@ -74,9 +80,10 @@ def process(input: str) -> str:
 def main(parameters):
     """Applies the text processing pipeline."""
     logging.info("loading llm...")
-    client = TransformersClient(model_id=parameters.deposit_id)
+    llm = TransformersClient(model=parameters.llm_id)
+    encoder = SentenceTransformerClient(model=parameters.encoder_id)
 
-    for file in parameters.files:
+    for file in parameters.inputs:
         logging.info(f"starting pipeline for {file}")
         if not os.path.exists(file):
             message = f"File not found: {file}"
@@ -93,11 +100,16 @@ def main(parameters):
         corpus = corpus[:3]
 
         logging.info("augmenting chunks")
-        corpus = augment(chunks=corpus, client=client)
+        corpus = augment(chunks=corpus, client=llm)
+
+        logging.info("embedding chunks")
+        corpus = embed(chunks=corpus, client=encoder)
 
         logging.info("saving corpus...")
-        with open(os.path.join(parameters.database, f"{filepath.stem}.json"), "w") as f:
-            json.dump([c.to_dict() for c in corpus], f, indent=4, ensure_ascii=True)
+        with open(os.path.join(parameters.output, f"{filepath.stem}.jsonl"), "w") as f:
+            for chunk in corpus:
+                json.dump(chunk.to_dict(), f, indent=4, ensure_ascii=True)
+                f.write("\n")
 
 
 if __name__ == "__main__":

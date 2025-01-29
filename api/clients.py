@@ -1,8 +1,10 @@
 import os
 from typing import List, Optional, Dict
 
+import numpy as np
 import torch
-from cohere import Client as CohereClient
+from cohere import ClientV2, Document
+from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 
 
@@ -17,9 +19,6 @@ class ChatExchange:
 
 
 class BaseClient:
-    conversation: List[ChatExchange]
-    system_prompt: str
-
     def respond(
             self,
             query: str,
@@ -47,91 +46,125 @@ class BaseClient:
         """
         raise NotImplementedError()
 
+    def embed(
+            self,
+            texts: List[str],
+            model: Optional[str] = None
+    ) -> np.ndarray:
+        """
+        Computes the embeddings of the provided texts.
 
-class Cohere(BaseClient):
+        Parameters
+        ----------
+        texts: List[str]
+            The texts to embed.
+        model: str, optional
+            The model identifier to use for generating the embeddings.
+
+        Returns
+        -------
+        np.ndarray
+            The embeddings of the texts.
+        """
+        raise NotImplementedError()
+
+
+class CohereClient(BaseClient):
     """
     Implements the Cohere API client.
     """
     _environ_key: str = "COHERE_API_KEY"
-    api_key: str
-    client: CohereClient
+    _client: ClientV2
 
-    def __init__(self, api_key: Optional[str] = None):
-        self.client = CohereClient(api_key=api_key if api_key else os.getenv(self._environ_key))
+    llm: str = "command-r"
+    encoder: str = "embed-english-light-v3.0"
+
+    def __init__(
+            self,
+            api_key: Optional[str] = None,
+            llm: Optional[str] = None,
+            encoder: Optional[str] = None
+    ):
+        self._client = ClientV2(api_key=api_key if api_key else os.getenv(self._environ_key))
+        if llm:
+            self.llm = llm
+        if encoder:
+            self.encoder = encoder
 
     def respond(
             self,
             query: str,
-            system_prompt: Optional[str] = "You are a helpful assistant.",
+            system_prompt: Optional[str] = None,
             conversation: Optional[List[ChatExchange]] = None,
             data: Dict[str, str] = None,
             temperature: Optional[float] = 1.0,
-            model: str = "command-r"
+            model: str = None
     ) -> str:
         """See base class for details."""
         if conversation is None:
             conversation = []
         if data is None:
             data = {}
+        if model:
+            self.llm = model
 
         # cast conversation to chat history
-        chat_history = []
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
         for exchange in conversation:
-            chat_history += [
-                {"role": "USER", "message": exchange.query},
-                {"role": "CHATBOT", "message": exchange.response},
+            messages += [
+                {"role": "user", "content": exchange.query},
+                {"role": "assistant", "content": exchange.response},
             ]
+        messages.append({"role": "user", "content": query})
 
-        # build corpus
+        # build documents
         documents = []
         for title, content in data.items():
-            documents.append({"title": title, "text": content})
+            documents.append(Document(data={"title": title, "snipped": content}))
 
         # request response
-        response = self.client.chat(
-            model=model,
-            preamble=system_prompt,
-            chat_history=chat_history,
-            message=query,
+        response = self._client.chat(
+            model=self.llm,
+            messages=messages,
             documents=documents,
             temperature=temperature,
         )
 
-        return response.text
+        return response.message.content[0].text
+
+    def embed(
+            self,
+            texts: List[str],
+            model: Optional[str] = "embed-english-light-v3.0",
+            input_type: Optional[str] = "search_query"
+    ) -> np.ndarray:
+        """See base class for details."""
+        response = self._client.embed(
+            texts=texts,
+            model=model,
+            input_type=input_type,
+            embedding_types=["float"],
+        )
+        return np.array(response.embeddings.float_)
 
 
 class TransformersClient(BaseClient):
+    """
+    Wrappers around the ``transformers`` and ``diffusers`` APIs from Hugging Face.
+    """
     pipe: pipeline
     device: str
     model_id: str = None
 
     def __init__(
             self,
-            model_id: Optional[str] = None,
+            model: Optional[str] = None
     ):
-        """
-        Initializes the chatbot with a specific model from Hugging Face.
-        Args:
-            model_id (str): Model identifier on Hugging Face Hub (e.g., 'gpt2').
-            device (str): Device to load the model onto ('cuda' or 'cpu'). Auto-detected if not specified.
-        """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        if model_id:
-            self.load(model_id)
-
-    def load(self, model_id: str):
-        """
-        Loads the model from the provided deposit identifier in the Hugging Face Hub.
-        """
-        load_model = False
-        if self.model_id is None:
-            self.model_id = model_id
-            load_model = True
-        if self.model_id != model_id:
-            self.model_id = model_id
-            load_model = True
-        if load_model:
-            self.pipe = pipeline("text-generation", model=model_id, device=self.device)
+        if model:
+            self.pipe = pipeline("text-generation", model=model, device=self.device)
 
     def respond(
             self,
@@ -171,7 +204,7 @@ class TransformersClient(BaseClient):
             The generated response from the model.
         """
         if model:
-            self.load(model)
+            self.pipe = pipeline("text-generation", model=model, device=self.device)
         if conversation is None:
             conversation = []
         if data is None:
@@ -200,3 +233,38 @@ class TransformersClient(BaseClient):
         )
 
         return response[0].get("generated_text")[-1].get("content")
+
+
+class SentenceTransformerClient(BaseClient):
+    """
+    Implements the SentenceTransformer API client.
+    """
+    model: SentenceTransformer = None
+    device: str
+
+    def __init__(
+            self,
+            use_cpu: Optional[bool] = False,
+            model: Optional[str] = None
+    ):
+        self.device = "cpu" if (use_cpu or (not torch.cuda.is_available())) else "cuda"
+        if model:
+            self.model = SentenceTransformer(model)
+
+    def embed(
+            self,
+            texts: List[str],
+            model: Optional[str] = None,
+            input_type: Optional[str] = "search_query"
+    ) -> np.ndarray:
+        """See base class for details."""
+        if model:
+            self.model = SentenceTransformer(model)
+        embeddings = self.model.encode(
+            [f"{input_type}: {t}" for t in texts],
+            convert_to_tensor=True,
+            device=self.device
+        )
+        if self.device == "cuda":
+            embeddings = embeddings.cpu()
+        return embeddings.numpy()

@@ -6,11 +6,11 @@ from typing import Dict
 import gradio as gr
 import tomli
 
-from api.clients import Cohere
+from api.clients import CohereClient
 from app_api import build_retriever, set_theme, ask_question, evaluate_response
 
 HELP: Dict[str, str]
-TEACHER: Cohere
+TEACHER: CohereClient
 
 
 def load_parameters() -> argparse.Namespace:
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         HELP = tomli.load(f)
 
     # initialize llms
-    TEACHER = Cohere()
+    TEACHER = CohereClient()
 
     # run app
     build_ui().launch(share=False)

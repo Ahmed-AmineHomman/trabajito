@@ -2,6 +2,7 @@ import copy
 from typing import List, Dict
 from typing import Optional
 
+import numpy as np
 import torch
 from transformers import DynamicCache
 from unstructured.chunking.basic import chunk_elements
@@ -9,32 +10,81 @@ from unstructured.chunking.title import chunk_by_title
 from unstructured.documents.elements import Element
 from unstructured.partition.auto import partition
 
-from clients import TransformersClient
+from clients import BaseClient, TransformersClient
 
 
 class Chunk:
-    text: str
-    metadata: dict
-    context: str
+    text: str = ""
+    metadata: dict = {}
+    context: str = ""
+    embeddings: List[float] = []
 
-    def __init__(self, text: str, metadata: Dict, context: Optional[str] = None):
-        self.text = text
-        self.metadata = metadata
-        self.context = context
+    def __init__(
+            self,
+            text: Optional[str] = None,
+            metadata: Optional[Dict] = None,
+            context: Optional[str] = None,
+            embeddings: Optional[List[float]] = None
+    ):
+        if text:
+            self.text = text
+        if metadata:
+            self.metadata = metadata
+        if context:
+            self.context = context
+        if embeddings:
+            self.embeddings = embeddings
 
     @staticmethod
     def from_element(element: Element):
-        return Chunk(text=element.text, metadata=element.metadata.to_dict())
+        return Chunk(
+            text=element.text,
+            metadata=element.metadata.to_dict()
+        )
 
     @staticmethod
     def from_dict(data: dict):
-        return Chunk(text=data["text"], metadata=data["metadata"], context=data["context"])
+        return Chunk(
+            text=data.get("text", None),
+            metadata=data.get("metadata", None),
+            context=data.get("context", None),
+            embeddings=data.get("embeddings", None)
+        )
 
     def to_dict(self) -> Dict:
-        return dict(text=self.text, metadata=self.metadata, context=self.context)
+        return dict(
+            text=self.text,
+            metadata=self.metadata,
+            context=self.context,
+            embeddings=self.embeddings
+        )
 
     def to_string(self) -> str:
         return f"Text: {self.text}\nContext: {self.context}"
+
+
+def load_and_chunk(
+        filepath: str,
+        max_characters: Optional[int] = 512,
+        overlap: Optional[int] = 20,
+        strategy: Optional[str] = "title"
+) -> List[Chunk]:
+    """
+    Loads the corpus from the provided file path and chunk it into smaller parts.
+    """
+    # parse document
+    corpus = partition(filename=filepath)
+
+    # chunk document
+    if strategy == "title":
+        corpus = chunk_by_title(elements=corpus, max_characters=max_characters, overlap=overlap)
+    else:
+        corpus = chunk_elements(elements=corpus, max_characters=max_characters, overlap=overlap)
+
+    # cast to JSON-serializable object
+    corpus = [Chunk.from_element(element=c) for c in corpus]
+
+    return corpus
 
 
 def augment(
@@ -94,25 +144,14 @@ Answer only with the succinct context and nothing else, without introduction nor
     return corpus
 
 
-def load_and_chunk(
-        filepath: str,
-        max_characters: Optional[int] = 512,
-        overlap: Optional[int] = 20,
-        strategy: Optional[str] = "title"
+def embed(
+        chunks: List[Chunk],
+        client: BaseClient,
 ) -> List[Chunk]:
     """
-    Loads the corpus from the provided file path and chunk it into smaller parts.
+    Computes the embeddings of the provided chunks.
     """
-    # parse document
-    corpus = partition(filename=filepath)
-
-    # chunk document
-    if strategy == "title":
-        corpus = chunk_by_title(elements=corpus, max_characters=max_characters, overlap=overlap)
-    else:
-        corpus = chunk_elements(elements=corpus, max_characters=max_characters, overlap=overlap)
-
-    # cast to JSON-serializable object
-    corpus = [Chunk.from_element(element=c) for c in corpus]
-
-    return corpus
+    embeddings = client.embed(texts=[c.to_string() for c in chunks])
+    for i, chunk in enumerate(chunks):
+        chunk.embeddings = embeddings[i].tolist()
+    return chunks
