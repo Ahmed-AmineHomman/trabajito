@@ -4,16 +4,17 @@ version = "0.4.0.0"
 description = "Une interface web simpliste vous aidant à réviser vos cours."
 authors = ["Ahmed-Amine HOMMAN"]
 readme = "README.md"
-packages = [{include = "trabajito"}]
+packages = [{ include = "trabajito" }]
 
 [tool.poetry.dependencies]
-python = ""
-gradio = ""
-unstructured = ""
-cohere = ""
-tomli = ""
-sentence_transformers = ""
-transformers = ""
+python = "*"
+gradio = "*"
+nstructured = { extras = ["all-docs"] }
+cohere = "*"
+tomli = "*"
+sentence_transformers = "*"
+transformers = "*"
+libmagic = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

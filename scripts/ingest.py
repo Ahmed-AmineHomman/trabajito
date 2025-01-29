@@ -21,16 +21,13 @@ Arguments:
     --files: List of files to process.
     --database: Path to the database containing the embeddings (default: ./data/embeddings.db).
 """
-import json
 import logging
 import os
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
-from unstructured.cleaners.core import clean
-
 from api.clients import TransformersClient, SentenceTransformerClient
-from api.utils import load_and_chunk, Chunk, augment, embed
+from api.database import Database
 
 
 def load_parameters() -> Namespace:
@@ -49,8 +46,8 @@ def load_parameters() -> Namespace:
     parser.add_argument(
         "--output",
         required=False,
-        default="./data",
-        help="Directory where JSON databases will be exported."
+        default="./data/database.jsonl",
+        help="Path where the database will be exported."
     )
     parser.add_argument(
         "--llm_id",
@@ -64,52 +61,62 @@ def load_parameters() -> Namespace:
         default="nomic-ai/modernbert-embed-base",
         help="The deposit id of the model in the sentence_transformers library computing the text embeddings."
     )
+    parser.add_argument(
+        "--skip_augmentation",
+        action="store_true",
+        help="Skip the augmentation step."
+    )
+    parser.add_argument(
+        "--skip_embedding",
+        action="store_true",
+        help="Skip the embedding step."
+    )
     return parser.parse_args()
-
-
-def process(input: str) -> str:
-    """
-    Applies the text processing pipeline to the provided text.
-    """
-    output = input.strip()
-    output = clean(output, lowercase=True, extra_whitespace=True, dashes=True, bullets=True)
-    output = " ".join([w.strip() for w in output.split() if len(w) > 0])
-    return output
 
 
 def main(parameters):
     """Applies the text processing pipeline."""
+    logging.info("initializing database...")
+    output_path = Path(parameters.output).as_posix()
+    database = Database()
+    database.dump(output_path=output_path, reset_output=True)
+
     logging.info("loading llm...")
-    llm = TransformersClient(model=parameters.llm_id)
-    encoder = SentenceTransformerClient(model=parameters.encoder_id)
+    if not parameters.skip_augmentation:
+        llm = TransformersClient(model=parameters.llm_id)
+    if not parameters.skip_embedding:
+        encoder = SentenceTransformerClient(model=parameters.encoder_id)
 
     for file in parameters.inputs:
-        logging.info(f"starting pipeline for {file}")
+        logging.info(f"ingesting {file}")
         if not os.path.exists(file):
             message = f"File not found: {file}"
             logging.warning(message)
             pass
-        filepath = Path(file)
+        filepath = Path(file).as_posix()
 
         logging.info("chunking file")
-        corpus = load_and_chunk(filepath.as_posix())
+        database.ingest(filepath=filepath)
 
         logging.info("apply processing pipeline")
-        corpus = [Chunk(text=process(c.text), metadata=c.metadata) for c in corpus]
+        database.process(filepath=filepath)
 
-        corpus = corpus[:3]
+        if not parameters.skip_augmentation:
+            logging.info("augmenting chunks")
+            database.augment(client=llm, filepath=filepath)
 
-        logging.info("augmenting chunks")
-        corpus = augment(chunks=corpus, client=llm)
-
-        logging.info("embedding chunks")
-        corpus = embed(chunks=corpus, client=encoder)
+        if not parameters.skip_embedding:
+            logging.info("embedding chunks")
+            database.embed(client=encoder, filepath=filepath)
 
         logging.info("saving corpus...")
-        with open(os.path.join(parameters.output, f"{filepath.stem}.jsonl"), "w") as f:
-            for chunk in corpus:
-                json.dump(chunk.to_dict(), f, indent=4, ensure_ascii=True)
-                f.write("\n")
+        database.dump(
+            output_path=output_path,
+            filepath=filepath,
+            reset_output=False,
+            indent=4,
+            ensure_ascii=True,
+        )
 
 
 if __name__ == "__main__":

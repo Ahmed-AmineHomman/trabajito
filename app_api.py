@@ -4,7 +4,7 @@ import gradio as gr
 
 from app import HELP, TEACHER
 from clients import ChatExchange
-from utils import load_corpus, split_corpus
+from database import load_corpus, split_corpus
 
 
 def build_retriever(
