@@ -4,6 +4,7 @@ from typing import List, Optional, Dict
 import numpy as np
 import torch
 from cohere import ClientV2, Document
+from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 
@@ -67,6 +68,97 @@ class BaseClient:
             The embeddings of the texts.
         """
         raise NotImplementedError()
+
+
+class OpenAIClient(BaseClient):
+    """
+    The [OpenAI API](https://platform.openai.com/docs/api-reference/introduction).
+
+    This class implements a wrapper around the OpenAI API, using the reference `openai`` library.
+    Since the OpenAI API is widely adopted, many API providers use the same format for their own APIs.
+    Such APIs can therefore be used interchangeably with this client, by specifying the ``base_url`` accordingly.
+    """
+    _environ_key: str = "OPENAI_API_KEY"
+    _client: OpenAI
+
+    llm: str = "gpt-4o-mini"
+    encoder: str = "text-embedding-3-small"
+
+    def __init__(
+            self,
+            api_key: Optional[str] = None,
+            llm: Optional[str] = None,
+            encoder: Optional[str] = None,
+            base_url: Optional[str] = None
+    ):
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        if llm:
+            self.llm = llm
+        if encoder:
+            self.encoder = encoder
+
+    def respond(
+            self,
+            query: str,
+            system_prompt: Optional[str] = None,
+            conversation: Optional[List[ChatExchange]] = None,
+            data: Dict[str, str] = None,
+            temperature: Optional[float] = 1.0,
+            model: str = None
+    ) -> str:
+        """See base class for details."""
+        if conversation is None:
+            conversation = []
+        if data is None:
+            data = {}
+        if model:
+            self.llm = model
+
+        # build system prompt with user's system prompt & data
+        base_prompt: Optional[str] = None
+        if (system_prompt is not None) or (data is not None):
+            base_prompt = f"{system_prompt}\n\n" if system_prompt else ""
+            for title, content in data.items():
+                base_prompt += f"{title}\n{content}\n\n"
+
+        # cast conversation to chat history
+        messages = []
+        if base_prompt:
+            messages.append({"role": "developer", "content": base_prompt})
+        for exchange in conversation:
+            messages += [
+                {"role": "user", "content": exchange.query},
+                {"role": "assistant", "content": exchange.response},
+            ]
+        messages.append({"role": "user", "content": query})
+
+        # build documents
+        documents = []
+        for title, content in data.items():
+            documents.append({"title": title, "text": content})
+
+        # request response
+        response = self._client.chat.completions.create(
+            model=self.llm,
+            messages=messages,
+            temperature=temperature,
+        )
+
+        return response.choices[0].message.content
+
+    def embed(
+            self,
+            texts: List[str],
+            model: Optional[str] = None,
+    ) -> np.ndarray:
+        """See base class for details."""
+        if model:
+            self.encoder = model
+        response = self._client.embeddings.create(
+            model=self.encoder,
+            input=texts
+        )
+        return np.array(response.embedding)
 
 
 class CohereClient(BaseClient):
@@ -137,7 +229,7 @@ class CohereClient(BaseClient):
     def embed(
             self,
             texts: List[str],
-            model: Optional[str] = "embed-english-light-v3.0",
+            model: Optional[str] = None,
             input_type: Optional[str] = "search_query"
     ) -> np.ndarray:
         """See base class for details."""

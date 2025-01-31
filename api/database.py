@@ -11,7 +11,7 @@ from unstructured.cleaners.core import clean
 from unstructured.documents.elements import Element
 from unstructured.partition.auto import partition
 
-from clients import BaseClient, TransformersClient
+from .clients import BaseClient, TransformersClient
 
 
 class Chunk:
